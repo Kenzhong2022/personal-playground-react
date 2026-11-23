@@ -8,6 +8,7 @@ import {
   Card,
   Empty,
   Image as AntImage,
+  Space,
   Input,
   Modal,
   Popconfirm,
@@ -52,7 +53,8 @@ function formatSize(bytes?: number): string {
   if (!bytes && bytes !== 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
@@ -76,22 +78,25 @@ export default function AdminMediaPage() {
   // 上传后刷新去抖：多个文件连续上传完成时只在最后一个完成后刷新一次
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchList = useCallback(async (targetPrefix: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `/api/admin/media?prefix=${encodeURIComponent(targetPrefix)}`,
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "读取媒体列表失败");
-      setItems(Array.isArray(data.items) ? data.items : []);
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : "读取媒体列表失败");
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [message]);
+  const fetchList = useCallback(
+    async (targetPrefix: string) => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/admin/media?prefix=${encodeURIComponent(targetPrefix)}`,
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error ?? "读取媒体列表失败");
+        setItems(Array.isArray(data.items) ? data.items : []);
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : "读取媒体列表失败");
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [message],
+  );
 
   useEffect(() => {
     // 首次与切换文件夹时同步拉取列表；loading 置位是外部数据同步的一部分
@@ -110,7 +115,11 @@ export default function AdminMediaPage() {
 
   /** @description antd Upload customRequest：multipart 转发到上传路由 */
   const customUpload = useCallback(
-    (options: { file: unknown; onSuccess?: () => void; onError?: (err: Error) => void }) => {
+    (options: {
+      file: unknown;
+      onSuccess?: () => void;
+      onError?: (err: Error) => void;
+    }) => {
       const formData = new FormData();
       formData.append("file", options.file as File);
       formData.append("prefix", prefix);
@@ -164,7 +173,11 @@ export default function AdminMediaPage() {
       const res = await fetch("/api/admin/media", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "rename", from: renaming.path, to: next }),
+        body: JSON.stringify({
+          action: "rename",
+          from: renaming.path,
+          to: next,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "重命名失败");
@@ -212,8 +225,9 @@ export default function AdminMediaPage() {
   ];
 
   return (
-    <PageLayout
-      header={
+    <PageLayout>
+      <div className="flex flex-col gap-4">
+        {/* 标题与操作按钮：放在卡片内容区顶部，随白卡一起渲染 */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-base font-medium">媒体管理</span>
@@ -235,15 +249,16 @@ export default function AdminMediaPage() {
               accept="image/*,video/*,audio/*"
               customRequest={customUpload as never}
             >
-              <Button type="primary" icon={<UploadOutlined />} loading={uploading > 0}>
+              <Button
+                type="primary"
+                icon={<UploadOutlined />}
+                loading={uploading > 0}
+              >
                 上传媒体
               </Button>
             </Upload>
           </div>
         </div>
-      }
-    >
-      <div className="flex flex-col gap-4">
         <Breadcrumb items={breadcrumbItems} />
 
         {loading ? (
@@ -260,27 +275,45 @@ export default function AdminMediaPage() {
                 hoverable
                 className="overflow-hidden"
                 styles={{ body: { padding: "12px 16px" } }}
-                onClick={item.isFolder ? () => setPrefix(`${item.path}/`) : undefined}
+                onClick={
+                  item.isFolder ? () => setPrefix(`${item.path}/`) : undefined
+                }
                 cover={
                   /* cover 插槽：文件夹 / 视频 / 音频展示图标，图片直接缩略图（可点击放大） */
                   <div
-                    className="flex aspect-video items-center justify-center overflow-hidden"
+                    className="flex aspect-3/4 items-center justify-center overflow-hidden"
                     style={{ background: "var(--ant-color-fill-tertiary)" }}
                   >
                     {item.isFolder ? (
                       <FolderOutlined
-                        style={{ fontSize: 40, color: "var(--ant-color-primary)" }}
+                        style={{
+                          fontSize: 40,
+                          color: "var(--ant-color-primary)",
+                        }}
                       />
-                    ) : item.mimetype?.startsWith("image/") && item.publicUrl ? (
+                    ) : item.mimetype?.startsWith("image/") &&
+                      item.publicUrl ? (
                       <AntImage
                         src={item.publicUrl}
                         alt={item.displayName ?? item.name}
-                        className="h-full w-full object-cover [&>img]:h-full [&>img]:w-full [&>img]:object-cover"
-                        preview={{ mask: <span>预览</span> }}
+                        className="h-full w-full object-contain"
+                        /* 根节点撑满封面区：img 的 h-full 需要父级有确定高度才生效 */
+                        styles={{ root: { width: "100%", height: "100%" } }}
+                        preview={{
+                          mask: { blur: true },
+                          cover: (
+                            <Space vertical align="center">
+                              预览
+                            </Space>
+                          ),
+                        }}
                       />
                     ) : (
                       <span
-                        style={{ fontSize: 40, color: "var(--ant-color-text-quaternary)" }}
+                        style={{
+                          fontSize: 40,
+                          color: "var(--ant-color-text-quaternary)",
+                        }}
                       >
                         {mediaIcon(item.mimetype)}
                       </span>
@@ -342,7 +375,10 @@ export default function AdminMediaPage() {
 
       {/* 视频 / 音频预览弹窗（图片用 antd Image 自带预览） */}
       <Modal
-        open={preview?.mimetype?.startsWith("video/") === true || preview?.mimetype?.startsWith("audio/") === true}
+        open={
+          preview?.mimetype?.startsWith("video/") === true ||
+          preview?.mimetype?.startsWith("audio/") === true
+        }
         title={preview?.name}
         footer={null}
         width={720}
