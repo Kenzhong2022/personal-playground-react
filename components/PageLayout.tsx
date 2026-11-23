@@ -56,7 +56,10 @@ export default function PageLayout({
         <Suspense
           fallback={<Layout.Header style={{ background: colorBgContainer }} />}
         >
-          <TopNav collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+          <TopNav
+            collapsed={collapsed}
+            onToggle={() => setCollapsed(!collapsed)}
+          />
         </Suspense>
 
         <Content
@@ -74,7 +77,11 @@ export default function PageLayout({
           <div className={`flex-1 ${contentClassName}`}>
             {/* 默认白卡包裹（layout-fill-card 占满高度，规则见 globals.css）；
                 card=false 时原样渲染 children，页面自行决定容器 */}
-            {card ? <Card className="layout-fill-card">{children}</Card> : children}
+            {card ? (
+              <Card className="layout-fill-card">{children}</Card>
+            ) : (
+              children
+            )}
           </div>
         </Content>
       </Layout>
