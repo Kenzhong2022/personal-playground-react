@@ -7,16 +7,19 @@ import zhCN from "antd/locale/zh_CN";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 import AntdAppBridge from "./AntdAppBridge";
-import { useThemeMode } from "./useThemeMode";
+import { useThemeMode, type ThemeMode } from "./useThemeMode";
 
 dayjs.locale("zh-cn");
 
 export default function AntdConfigProvider({
   children,
+  initialTheme,
 }: {
   children: ReactNode;
+  /** 服务端从主题 cookie 解析出的初始值：保证 SSR 渲染的 antd token 与用户当前主题一致 */
+  initialTheme?: { mode: ThemeMode; dark: boolean };
 }) {
-  const { dark } = useThemeMode();
+  const { dark } = useThemeMode(initialTheme);
   const algorithm = dark ? theme.darkAlgorithm : theme.defaultAlgorithm;
 
   // 与 colorLink 共用同一份算法 token；useMemo 避免每次 render 重复计算
