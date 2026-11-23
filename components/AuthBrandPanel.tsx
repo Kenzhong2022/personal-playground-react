@@ -16,8 +16,8 @@ interface AuthBrandPanelProps {
 }
 
 /**
- * 认证页（登录/注册）左侧品牌面板：背景图 + 渐变遮罩 + 品牌名 + 标语。
- * 移动端隐藏；文案由 slogan 决定，两页共用同一背景视觉。
+ * 认证页（登录/注册/忘记密码）左侧品牌面板：背景图 + 渐变遮罩 + 品牌名 + 标语。
+ * 移动端隐藏；文案由 slogan 决定，各页共用同一背景视觉。
  */
 export default function AuthBrandPanel({
   slogan,
@@ -47,9 +47,7 @@ export default function AuthBrandPanel({
         <div className="absolute top-8 right-10">
           <Link href="/">
             <div className="text-(--ant-color-primary-text) hover:text-(--ant-color-primary-text-hover) ">
-              <ArrowLeftOutlined
-                style={{ color: "var(--ant-color-primary-text)" }}
-              />
+              <ArrowLeftOutlined />
               <span className="ml-1 ">返回首页</span>
             </div>
           </Link>

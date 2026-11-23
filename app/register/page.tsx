@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { App as AntApp, Button, Form, Input, type FormInstance } from "antd";
@@ -35,6 +35,10 @@ function RegisterView() {
   const { message } = AntApp.useApp();
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  // 提交 / 发码防重入：loading 态挡不住「输入框回车 + 点按钮」的并发提交，
+  // 同一个一次性 Turnstile token 被两个请求复用时第二个必然 403
+  const sendingRef = useRef(false);
+  const submittingRef = useRef(false);
   const [countdown, setCountdown] = useState(0);
   const [form] = Form.useForm<RegisterForm>();
   // Turnstile 人机验证令牌：发码与注册各一个组件（action 不同、令牌一次性消费），
@@ -61,6 +65,8 @@ function RegisterView() {
       message.warning("请先完成人机验证再发送验证码");
       return;
     }
+    if (sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     try {
       const res = await fetch("/api/auth/send-code", {
@@ -80,15 +86,18 @@ function RegisterView() {
       message.error("网络错误，请稍后重试");
       setSendReset((k) => k + 1);
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
 
   async function handleRegister(values: RegisterForm) {
+    if (submittingRef.current) return;
     if (!regToken) {
       message.warning("请先完成人机验证");
       return;
     }
+    submittingRef.current = true;
     setLoading(true);
     try {
       const res = await fetch("/api/auth/register", {
@@ -110,6 +119,7 @@ function RegisterView() {
       message.error("网络错误，请稍后重试");
       setRegReset((k) => k + 1);
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   }
@@ -122,7 +132,7 @@ function RegisterView() {
       {/* 右侧注册表单 */}
       <div className="flex-1 flex w-full items-center justify-center px-8 md:w-2/5 bg-(--ant-layout-body-bg)">
         <div className="w-full max-w-[400px] py-16">
-          <h1 className="mb-8 text-2xl font-bold text-gray-900">创建新账户</h1>
+          <h1 className="mb-8 text-2xl font-bold text-(--ant-color-text)">创建新账户</h1>
 
           <Form<RegisterForm>
             form={form}
@@ -218,11 +228,11 @@ function RegisterView() {
               </Button>
             </Form.Item>
 
-            <div className="text-center text-sm text-gray-500">
+            <div className="text-center text-sm text-(--ant-color-text-secondary)">
               已有账户？
               <Link
                 href="/login"
-                className="link-reset cursor-pointer text-[#1677ff]"
+                className="cursor-pointer text-(--ant-color-primary)"
               >
                 去登录
               </Link>

@@ -25,7 +25,6 @@ const USER_FIELDS: CrudField[] = [
   {
     name: "name",
     label: "用户名",
-    width: 160,
     required: true,
     placeholder: "登录展示名",
     render: (value) => (
@@ -35,7 +34,6 @@ const USER_FIELDS: CrudField[] = [
   {
     name: "email",
     label: "邮箱",
-    width: 240,
     required: true,
     requiredMessage: "请输入邮箱",
     rules: [{ type: "email", message: "邮箱格式不正确" }],
@@ -58,7 +56,6 @@ const USER_FIELDS: CrudField[] = [
   {
     name: "last_login_at",
     label: "最后登录",
-    width: 180,
     editable: false,
     render: (value) =>
       value ? dayjs(String(value)).format("YYYY-MM-DD HH:mm") : "—",
@@ -66,7 +63,6 @@ const USER_FIELDS: CrudField[] = [
   {
     name: "created_at",
     label: "创建时间",
-    width: 180,
     editable: false,
     render: (value) => dayjs(String(value)).format("YYYY-MM-DD HH:mm"),
   },
@@ -125,52 +121,54 @@ export default function AdminUsersPage() {
   return (
     <PageLayout>
       <CrudManager
-          title="用户"
-          fields={USER_FIELDS}
-          rows={rows ?? []}
-          loading={loading}
-          paginated
-          total={total}
-          current={page}
-          pageSize={pageSize}
-          onPageChange={(next, nextSize) => {
-            setPage(next);
-            setPageSize(nextSize);
-          }}
-          filterFields={[
-            {
-              name: "keyword",
-              label: "关键字",
-              placeholder: "按用户名 / 邮箱搜索",
-            },
-          ]}
-          onFilterSearch={(values) => {
-            setKeyword(values.keyword === undefined ? "" : String(values.keyword));
-            setPage(1);
-          }}
-          // 服务端分页只持有当前页数据，导出/导入不适用
-          toolbar={{ export: false }}
-          onCreate={async (values) => {
-            await request({
-              url: "/api/users",
-              method: "POST",
-              body: JSON.stringify(values),
-            });
-            await load();
-          }}
-          onUpdate={async (record, values) => {
-            await request({
-              url: `/api/users/${record.id}`,
-              method: "PATCH",
-              body: JSON.stringify(values),
-            });
-            await load();
-          }}
-          onDelete={async (record) => {
-            await request({ url: `/api/users/${record.id}`, method: "DELETE" });
-            await load();
-          }}
-        />
+        title="用户"
+        fields={USER_FIELDS}
+        rows={rows ?? []}
+        loading={loading}
+        paginated
+        total={total}
+        current={page}
+        pageSize={pageSize}
+        onPageChange={(next, nextSize) => {
+          setPage(next);
+          setPageSize(nextSize);
+        }}
+        filterFields={[
+          {
+            name: "keyword",
+            label: "关键字",
+            placeholder: "按用户名 / 邮箱搜索",
+          },
+        ]}
+        onFilterSearch={(values) => {
+          setKeyword(
+            values.keyword === undefined ? "" : String(values.keyword),
+          );
+          setPage(1);
+        }}
+        // 服务端分页只持有当前页数据，导出/导入不适用
+        toolbar={{ export: false }}
+        onCreate={async (values) => {
+          await request({
+            url: "/api/users",
+            method: "POST",
+            body: JSON.stringify(values),
+          });
+          await load();
+        }}
+        onUpdate={async (record, values) => {
+          await request({
+            url: `/api/users/${record.id}`,
+            method: "PATCH",
+            body: JSON.stringify(values),
+          });
+          await load();
+        }}
+        onDelete={async (record) => {
+          await request({ url: `/api/users/${record.id}`, method: "DELETE" });
+          await load();
+        }}
+      />
     </PageLayout>
   );
 }
