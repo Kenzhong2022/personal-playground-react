@@ -1,5 +1,5 @@
 "use client";
-import { Children, isValidElement, Suspense, useEffect, useState } from "react";
+import { Children, isValidElement, Suspense, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
@@ -29,11 +29,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { canLeavePage } from "@/lib/leave-guard";
 import { NAV_GROUPS, flattenNavChildren, getActiveGroup } from "./navConfig";
 import { useThemeMode, type ThemeMode } from "./useThemeMode";
-import {
-  clearSessionUser,
-  getSessionUser,
-  type SessionUser,
-} from "@/lib/session";
+import { clearSessionUser } from "@/lib/session";
 
 // 弹出面板里的菜单项：标题 + 描述，整体可点击；active 时用主色浅背景高亮
 function NavMenuItem({
@@ -86,11 +82,8 @@ export default function TopNav({
   const [keyword, setKeyword] = useState("");
   const { token } = theme.useToken();
   const { mode, setMode } = useThemeMode();
-  // localStorage 登录态在客户端挂载后读取，避免 SSR 水合不一致
-  const [user, setUser] = useState<SessionUser | null>(null);
-  useEffect(() => {
-    setUser(getSessionUser());
-  }, []);
+  // 会话分支由服务端 proxy 在请求阶段决定（未登录已 302 到登录页），
+  // TopNav 只在受保护页面渲染，必然已登录，无需客户端登录态分支
 
   // 弹出面板样式：参考 antd mega-menu 示例，用主题 token 保持与整体风格一致
   const popupStyle: React.CSSProperties = {
@@ -237,66 +230,57 @@ export default function TopNav({
           icon={<SettingOutlined />}
           aria-label="设置"
         />
-        {/* 未登录 -> 「登录」文本入口，点击进入登录页；
-            已登录 -> 头像弹出 Dropdown（主题分组 + 退出登录） */}
-        {user ? (
-          <>
-            <Dropdown
-              trigger={["click"]}
-              placement="bottomRight"
-              menu={{
-                items: [
-                  {
-                    key: "theme",
-                    type: "group",
-                    label: "主题",
-                    children: [
-                      { key: "light", label: "亮色" },
-                      { key: "dark", label: "暗色" },
-                      { key: "system", label: "跟随系统" },
-                    ],
-                  },
-                  { type: "divider" },
-                  {
-                    key: "logout",
-                    icon: <LogoutOutlined />,
-                    label: "退出登录",
-                    danger: true,
-                  },
+        {/* 会话分支由服务端 proxy 决定：能渲染到此处必然已登录，
+            直接渲染头像 Dropdown（主题分组 + 退出登录） */}
+        <Dropdown
+          trigger={["click"]}
+          placement="bottomRight"
+          menu={{
+            items: [
+              {
+                key: "theme",
+                type: "group",
+                label: "主题",
+                children: [
+                  { key: "light", label: "亮色" },
+                  { key: "dark", label: "暗色" },
+                  { key: "system", label: "跟随系统" },
                 ],
-                selectedKeys: [mode],
-                onClick: ({ key }) => {
-                  if (key === "logout") {
-                    // 当前页注册了离开守卫（如通话房间）时先确认再退出
-                    void canLeavePage().then((ok) => {
-                      if (!ok) return;
-                      // 同时清除服务端会话 Cookie 与本地 UI 登录标记
-                      void fetch("/api/auth/logout", { method: "POST" });
-                      clearSessionUser();
-                      setUser(null);
-                      router.push("/login");
-                    });
-                    return;
-                  }
-                  if (["light", "dark", "system"].includes(key)) {
-                    setMode(key as ThemeMode);
-                  }
-                },
-              }}
-            >
-              <Avatar
-                size="small"
-                icon={<UserOutlined />}
-                aria-label="用户菜单"
-                style={{ cursor: "pointer" }}
-              />
-            </Dropdown>
-          </>
-        ) : (
-          <Button type="text" onClick={() => router.push("/login")}>
-            登录
-          </Button>
-        )}
+              },
+              { type: "divider" },
+              {
+                key: "logout",
+                icon: <LogoutOutlined />,
+                label: "退出登录",
+                danger: true,
+              },
+            ],
+            selectedKeys: [mode],
+            onClick: ({ key }) => {
+              if (key === "logout") {
+                // 当前页注册了离开守卫（如通话房间）时先确认再退出
+                void canLeavePage().then((ok) => {
+                  if (!ok) return;
+                  // 同时清除服务端会话 Cookie 与本地 UI 登录标记
+                  void fetch("/api/auth/logout", { method: "POST" });
+                  clearSessionUser();
+                  router.push("/login");
+                });
+                return;
+              }
+              if (["light", "dark", "system"].includes(key)) {
+                setMode(key as ThemeMode);
+              }
+            },
+          }}
+        >
+          <Avatar
+            size="small"
+            icon={<UserOutlined />}
+            aria-label="用户菜单"
+            style={{ cursor: "pointer" }}
+          />
+        </Dropdown>
       </Space>
     </Layout.Header>
   );
