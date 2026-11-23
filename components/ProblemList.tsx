@@ -43,7 +43,7 @@ type ProblemListItem = {
 /**
  * @description 题目列表接口返回结构：items 当前页数据；has_more 是否还有下一页；next_cursor 下一页游标
  */
-type ProblemPage = {
+export type ProblemPage = {
   items: ProblemListItem[];
   has_more: boolean;
   next_cursor: string | number | null;
@@ -107,13 +107,16 @@ type ProblemFormValues = {
 };
 
 /**
- * @description 组件属性：条目操作统一为「前往练习」（itemHref 可覆盖跳转地址，actionLabel 可覆盖文案）
+ * @description 组件属性：条目操作统一为「前往练习」（itemHref 可覆盖跳转地址，actionLabel 可覆盖文案）；
+ *              initialPage 为服务端组件预取的首页数据（React Server Components，RSC 模式），传入后首屏零客户端请求，
+ *              翻页 / 筛选 / 增删改仍由客户端发起；未传时回退为客户端自取（原行为）
  */
 type ProblemListProps = {
   itemHref?: (item: ProblemListItem) => string;
   actionLabel?: string;
   // 语言选中变化回调（可选）：父组件可用于联动展示
   onLanguageChange?: (language: string) => void;
+  initialPage?: ProblemPage;
 };
 
 /**
@@ -123,13 +126,18 @@ export default function ProblemList({
   itemHref,
   actionLabel = "前往练习",
   onLanguageChange,
+  initialPage,
 }: ProblemListProps) {
   const { message } = AntApp.useApp();
-  const [items, setItems] = useState<ProblemListItem[]>([]);
-  const [cursor, setCursor] = useState<string | number | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [items, setItems] = useState<ProblemListItem[]>(
+    initialPage?.items ?? [],
+  );
+  const [cursor, setCursor] = useState<string | number | null>(
+    initialPage?.next_cursor ?? null,
+  );
+  const [hasMore, setHasMore] = useState(initialPage?.has_more ?? false);
   const [dataset, setDataset] = useState<string | undefined>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialPage);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 手动重试计数：值变化触发重新拉取首页
@@ -157,8 +165,11 @@ export default function ProblemList({
     return () => observer.disconnect();
   }, [listWrap]);
 
-  // 首次加载与切换数据集时重置列表，重新从第一页拉取
+  // 首次加载与切换数据集时重置列表，重新从第一页拉取；
+  // RSC（React Server Components，下同）模式（initialPage 存在）下首屏数据由服务端下发，跳过本次客户端拉取，
+  // 仅在切换数据集 / 手动重试（reloadTick 变化）时回到客户端拉取
   useEffect(() => {
+    if (initialPage && dataset === undefined && reloadTick === 0) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -178,7 +189,7 @@ export default function ProblemList({
     return () => {
       cancelled = true;
     };
-  }, [dataset, reloadTick]);
+  }, [dataset, reloadTick, initialPage]);
 
   /**
    * @description 加载下一页并追加到列表尾部（哨兵自动触发或手动点击）
