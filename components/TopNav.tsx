@@ -291,7 +291,6 @@ export default function TopNav({
                 style={{ cursor: "pointer" }}
               />
             </Dropdown>
-            <span style={{ marginLeft: 8 }}>{user?.email ?? "用户"}</span>
           </>
         ) : (
           <Button type="text" onClick={() => router.push("/login")}>
