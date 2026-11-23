@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { Layout, Menu, theme } from "antd";
 import { usePathname, useRouter } from "next/navigation";
 import { canLeavePage } from "@/lib/leave-guard";
+import { getSessionUser, type SessionUser } from "@/lib/session";
 import { flattenNavChildren, type NavChild } from "./navConfig";
 
 type SideItem = NavChild;
@@ -46,6 +47,11 @@ export default function SideNav({
       return [...next];
     });
   }, [pathname, items]);
+  // 登录态在客户端挂载后读取，避免 SSR 水合不一致（与 TopNav / HomeContainer 同策略）
+  const [user, setUser] = useState<SessionUser | null>(null);
+  useEffect(() => {
+    setUser(getSessionUser());
+  }, []);
   const { token } = theme.useToken();
 
   return (
@@ -62,8 +68,24 @@ export default function SideNav({
           style={{
             height: 64,
             borderRight: `${0.1}px ${token.lineType} ${token.colorBorder}`,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 12px",
+            overflow: "hidden",
           }}
-        />
+        >
+          {/* 用户注册邮箱 */}
+          <span
+            style={{
+              marginLeft: 8,
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+              overflow: "hidden",
+            }}
+          >
+            {user?.email ?? "用户"}
+          </span>
+        </div>
         <Menu
           // key 变化时重建菜单，避免上一组菜单的选中态与展开态残留
           key={groupKey}
