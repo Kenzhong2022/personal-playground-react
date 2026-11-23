@@ -1,8 +1,11 @@
 "use client";
 
-import { Suspense, useState } from "react";
+// 无法服务端化：usePathname（菜单分组 / 高亮需要客户端路径）、collapsed 共享状态、
+// antd 交互组件（Menu / Sider / TopNav 弹层）三者都要求运行在浏览器。
+// 服务端化收益已由数据层（页面级 RSC 取数）与登录分支（proxy 验签）承担。
+import { useState } from "react";
 import type { ReactNode } from "react";
-import { Layout, Card, theme } from "antd";
+import { Layout, Card } from "antd";
 import { usePathname } from "next/navigation";
 import TopNav from "./TopNav";
 import SideNav from "./SideNav";
@@ -35,32 +38,23 @@ export default function PageLayout({
   const activeGroup = getActiveGroup(pathname);
   // 收缩状态放在最外层，顶部按钮控制、侧边栏消费
   const [collapsed, setCollapsed] = useState(false);
-  const {
-    token: { colorBgContainer, borderRadiusLG },
-  } = theme.useToken();
 
   return (
     // App 上下文已提升到根级 AntdConfigProvider，这里不再重复包 <App>
     <Layout style={{ minHeight: "100vh" }}>
-      <Suspense fallback={<Layout.Sider width={200} theme="light" />}>
-        <SideNav
-          groupKey={activeGroup.key}
-          items={activeGroup.children}
-          collapsed={collapsed}
-        />
-      </Suspense>
+      <SideNav
+        groupKey={activeGroup.key}
+        items={activeGroup.children}
+        collapsed={collapsed}
+      />
 
-      {/* 右侧：上下布局（顶栏 / 内容区） */}
+      {/* 右侧：上下布局（顶栏 / 内容区）。渲染全同步、无悬挂点，整树一次性 flush，
+          不需要 Suspense 边界（实测加了也不会出现 fallback） */}
       <Layout style={{ maxHeight: "calc(100vh)" }}>
-        {/* TopNav 内含使用导航路由的组件，保留 Suspense 边界；fallback 用同尺寸 Header 防止布局跳动 */}
-        <Suspense
-          fallback={<Layout.Header style={{ background: colorBgContainer }} />}
-        >
-          <TopNav
-            collapsed={collapsed}
-            onToggle={() => setCollapsed(!collapsed)}
-          />
-        </Suspense>
+        <TopNav
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(!collapsed)}
+        />
 
         <Content
           style={{
