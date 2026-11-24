@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   Empty,
+  Image,
   Space,
   Spin,
   Tag,
@@ -35,13 +36,18 @@ import PageLayout from "@/components/PageLayout";
 const MODEL_ID = "studioludens/birefnet-lite-512";
 const MAX_FILE_SIZE = 30 * 1024 * 1024;
 
-/** @description 透明 PNG 预览用的棋盘格背景（模拟透明区域） */
+/**
+ * @description 透明 PNG 预览用的棋盘格背景（模拟透明区域）。
+ *   方块色用 antd 填充 token、底色用容器背景 token——随明暗主题算法自动切换
+ *   （暗色下不再是刺眼的浅灰）；var() 兜底值仅在变量缺失时生效（取亮色近似值）
+ */
 const CHECKER_STYLE: CSSProperties = {
+  backgroundColor: "var(--ant-color-bg-container, #f0f0f0)",
   backgroundImage:
-    "linear-gradient(45deg, #ececec 25%, transparent 25%), " +
-    "linear-gradient(-45deg, #ececec 25%, transparent 25%), " +
-    "linear-gradient(45deg, transparent 75%, #ececec 75%), " +
-    "linear-gradient(-45deg, transparent 75%, #ececec 75%)",
+    "linear-gradient(45deg, var(--ant-color-fill-tertiary, #ececec) 25%, transparent 25%), " +
+    "linear-gradient(-45deg, var(--ant-color-fill-tertiary, #ececec) 25%, transparent 25%), " +
+    "linear-gradient(45deg, transparent 75%, var(--ant-color-fill-tertiary, #ececec) 75%), " +
+    "linear-gradient(-45deg, transparent 75%, var(--ant-color-fill-tertiary, #ececec) 75%)",
   backgroundSize: "16px 16px",
   backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0",
 };
@@ -58,7 +64,9 @@ type TransformersModule = typeof import("@huggingface/transformers");
  */
 type MattingSession = {
   mod: TransformersModule;
-  model: Awaited<ReturnType<TransformersModule["AutoModel"]["from_pretrained"]>>;
+  model: Awaited<
+    ReturnType<TransformersModule["AutoModel"]["from_pretrained"]>
+  >;
   processor: Awaited<
     ReturnType<TransformersModule["AutoProcessor"]["from_pretrained"]>
   >;
@@ -89,15 +97,18 @@ async function loadSession(
 ): Promise<MattingSession> {
   if (cachedSession) return cachedSession;
   const mod = await loadTransformers();
-  const supportsWebGPU =
-    typeof navigator !== "undefined" && "gpu" in navigator;
+  const supportsWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
   const device: Device = supportsWebGPU ? "webgpu" : "wasm";
 
   const build = async (dev: Device) => ({
     model: await mod.AutoModel.from_pretrained(MODEL_ID, {
       device: dev,
       dtype: dev === "webgpu" ? "fp16" : "fp32",
-    }),
+      // 日志级别压到 error：WebGPU 下 ORT 优化器会对个别节点报
+      // "Could not find a CPU kernel and hence can't constant fold" 警告，
+      // 仅表示常量折叠被跳过，不影响推理结果，但会被 dev 面板当错误展示
+      session_options: { logSeverityLevel: 3, logVerbosityLevel: 0 },
+    } as Parameters<TransformersModule["AutoModel"]["from_pretrained"]>[1]),
     processor: await mod.AutoProcessor.from_pretrained(MODEL_ID),
   });
 
@@ -294,9 +305,7 @@ export default function MattingWorkspace() {
       setStatusText(null);
     } catch (err) {
       console.error("[matting] 处理失败:", err);
-      setErrorText(
-        err instanceof Error ? err.message : "抠图失败，请稍后重试",
-      );
+      setErrorText(err instanceof Error ? err.message : "抠图失败，请稍后重试");
     } finally {
       setMatteBusy(false);
     }
@@ -318,8 +327,8 @@ export default function MattingWorkspace() {
           <div className="flex flex-col gap-1">
             <span className="text-base font-medium">在线抠图</span>
             <span className="text-xs text-(--ant-color-text-tertiary)">
-              推理由 BiRefNet-lite-512 在浏览器内完成，图片不会上传；模型
-              fp16 约 94MB，首次使用需下载，之后由浏览器缓存
+              推理由 BiRefNet-lite-512 在浏览器内完成，图片不会上传；模型 fp16
+              约 94MB，首次使用需下载，之后由浏览器缓存
             </span>
           </div>
           <Space wrap>
@@ -384,6 +393,7 @@ export default function MattingWorkspace() {
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
             <Card
+              className="layout-fill-card"
               title={
                 <Space>
                   <FileImageOutlined />
@@ -417,8 +427,8 @@ export default function MattingWorkspace() {
               title={
                 <Space>
                   <ScissorOutlined />
-                  抠图结果（透明 PNG，{result ? `${result.width}×${result.height}` : "原图尺寸"}
-                  ）
+                  抠图结果（透明 PNG，
+                  {result ? `${result.width}×${result.height}` : "原图尺寸"}）
                 </Space>
               }
               extra={
@@ -432,9 +442,10 @@ export default function MattingWorkspace() {
                 </Button>
               }
               styles={{ body: { padding: 12 } }}
+              className="layout-fill-card"
             >
               <div
-                className="flex max-h-96 items-center justify-center overflow-hidden"
+                className="flex h-full items-center justify-center overflow-hidden"
                 style={CHECKER_STYLE}
               >
                 {matteBusy ? (
@@ -445,8 +456,7 @@ export default function MattingWorkspace() {
                     </span>
                   </div>
                 ) : result ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Image
                     src={result.url}
                     alt="抠图结果"
                     className="max-h-96 max-w-full object-contain"
@@ -463,7 +473,7 @@ export default function MattingWorkspace() {
         )}
 
         {/* 操作区 */}
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-center gap-2">
           <Button
             type="primary"
             icon={<ScissorOutlined />}
