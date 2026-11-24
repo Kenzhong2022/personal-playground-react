@@ -26,7 +26,7 @@ function RoomFromQuery() {
 
 export default function MeetingPage() {
   return (
-    <PageLayout card={false}>
+    <PageLayout wrapInCard={false}>
       <div className="h-full min-h-0">
         <Suspense fallback={null}>
           <RoomFromQuery />

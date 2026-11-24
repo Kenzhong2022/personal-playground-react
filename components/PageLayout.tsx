@@ -20,19 +20,19 @@ const { Content } = Layout;
  * @param header 页头插槽（可选）：渲染在内容区上方、高度由内容决定，不参与内容区滚动
  * @param contentClassName 内容区包裹层 className（可选）：内容区为 flex 列布局、
  *              包裹层自动 flex:1 占满 header 以下的剩余高度，可用 h-full / overflow-* 控制子内容
- * @param card 是否用白卡包裹内容（默认 true，layout-fill-card 占满高度）；
+ * @param wrapInCard 是否用白卡包裹内容（默认 true，layout-fill-card 占满高度）；
  *              页面自行组合卡片的（如预览页、拼装多卡片的仪表盘）传 false 退出
  */
 export default function PageLayout({
   header,
   children,
   contentClassName,
-  card = true,
+  wrapInCard = true,
 }: {
   header?: ReactNode;
   children: ReactNode;
   contentClassName?: string;
-  card?: boolean;
+  wrapInCard?: boolean;
 }) {
   const pathname = usePathname();
   const activeGroup = getActiveGroup(pathname);
@@ -70,8 +70,8 @@ export default function PageLayout({
           {header && <div className="shrink-0 self-start">{header}</div>}
           <div className={`flex-1 ${contentClassName}`}>
             {/* 默认白卡包裹（layout-fill-card 占满高度，规则见 globals.css）；
-                card=false 时原样渲染 children，页面自行决定容器 */}
-            {card ? (
+                wrapInCard=false 时原样渲染 children，页面自行决定容器 */}
+            {wrapInCard ? (
               <Card className="layout-fill-card">{children}</Card>
             ) : (
               children

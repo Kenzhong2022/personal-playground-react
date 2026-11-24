@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { App } from "antd";
 import { CopyOutlined } from "@ant-design/icons";
-import { Card } from "antd";
 import ChatContent from "./components/ChatContent";
 import ChatInput, {
   DEFAULT_MODEL_CONFIG,
@@ -101,21 +100,20 @@ export default function AssistantContainer() {
   }
 
   return (
-    <Card className="layout-fill-card">
-      <div className="flex flex-col h-full">
-        {/* 消息区：min-h-0 + flex-1 保证内部滚动而不撑开外层 */}
-        <div className="min-h-0 flex-1">
-          <ChatContent messages={messages} actionsOf={actionsOf} />
-        </div>
-        {/* 输入区：固定在内容区底部，不随消息滚动 */}
-        <div className="pb-4">
-          <ChatInput
-            config={modelConfig}
-            onConfigChange={setModelConfig}
-            onSend={handleSend}
-          />
-        </div>
+    // 白卡外壳由 PageLayout 默认提供（wrapInCard=true），这里只管内部布局
+    <div className="flex flex-col h-full">
+      {/* 消息区：min-h-0 + flex-1 保证内部滚动而不撑开外层 */}
+      <div className="min-h-0 flex-1">
+        <ChatContent messages={messages} actionsOf={actionsOf} />
       </div>
-    </Card>
+      {/* 输入区：固定在内容区底部，不随消息滚动 */}
+      <div className="pb-4">
+        <ChatInput
+          config={modelConfig}
+          onConfigChange={setModelConfig}
+          onSend={handleSend}
+        />
+      </div>
+    </div>
   );
 }
