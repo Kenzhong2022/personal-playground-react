@@ -14,6 +14,12 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS",
   },
+  // Workers AI 绑定：在线抠图调 bria/remove-background 用。REST 统一端点对 bria
+  // 这类 provider 模型走 AI Gateway 统一计费（需充值 credits），绑定才走
+  // Workers AI Neurons 计费（每日 10000 免费 Neurons，约 6 张/天）
+  "ai": {
+    "binding": "AI",
+  },
   "observability": {
     "enabled": true,
   },
