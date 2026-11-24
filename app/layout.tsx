@@ -3,7 +3,9 @@ import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import AntdConfigProvider from "@/components/AntdConfigProvider";
+import SessionProvider from "@/components/SessionProvider";
 import type { ThemeMode } from "@/components/useThemeMode";
+import { getServerUser } from "@/lib/serverSession";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,6 +35,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     dark: jar.get("cb_theme_dark")?.value === "1",
   };
 
+  // 登录态：请求阶段读 Cookie 验签，经 Context 下发给客户端组件（SSR 首屏即真实用户）
+  const user = await getServerUser();
+
   return (
     <html
       lang="zh-CN"
@@ -54,7 +59,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         />
         <AntdRegistry>
           <AntdConfigProvider initialTheme={initialTheme}>
-            {children}
+            <SessionProvider user={user}>{children}</SessionProvider>
           </AntdConfigProvider>
         </AntdRegistry>
       </body>

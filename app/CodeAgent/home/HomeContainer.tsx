@@ -5,7 +5,7 @@ import Link from "next/link";
 import dayjs from "dayjs";
 import { Button, Space, Typography, theme } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
-import { getSessionUser, type SessionUser } from "@/lib/session";
+import { useSessionUser } from "@/components/SessionProvider";
 import BannerCard from "./BannerCard";
 import DifficultyEntriesCard from "./DifficultyEntriesCard";
 import RecentProblemsCard, { type ProblemListItem } from "./RecentProblemsCard";
@@ -14,20 +14,29 @@ import UserProfileCard from "./UserProfileCard";
 import CheckInHeatmapCard from "./CheckInHeatmapCard";
 
 /**
- * @description CodeAgent 首页容器：负责拉取最近题目数据，按左右布局渲染——
+ * @description CodeAgent 首页容器：按左右布局渲染——
  *              左侧主内容（上 BannerCard 横幅，中部「统计卡片 / 最近题目 / 难度入口」），
- *              右侧用户信息与打卡热力图侧栏
+ *              右侧用户信息与打卡热力图侧栏。
+ *              题库总数与最近题目由页面级服务端组件预取传入（RSC，首屏 0 请求）；
+ *              提交记录依赖登录会话，仍在客户端拉取
  */
-export default function HomeContainer() {
+export default function HomeContainer({
+  initialTotal,
+  initialRecent,
+}: {
+  /** 服务端预取的题库总数；undefined 表示服务端取数失败（统计卡显示占位） */
+  initialTotal?: number;
+  /** 服务端预取的最近题目列表；undefined 表示服务端取数失败，客户端 effect 自取 */
+  initialRecent?: ProblemListItem[];
+}) {
   const { token } = theme.useToken();
-  const [recent, setRecent] = useState<ProblemListItem[] | null>(null);
+  const [recent, setRecent] = useState<ProblemListItem[] | null>(
+    initialRecent ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
-  // 登录态在客户端挂载后读取，避免 SSR 水合不一致（与 TopNav 同策略）
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  useEffect(() => {
-    setSessionUser(getSessionUser());
-  }, []);
+  // 登录态由根布局服务端验签后经 Context 下发，SSR 首屏即已就绪
+  const sessionUser = useSessionUser();
 
   /** @description 打卡数据源：YYYY-MM-DD → 当天提交次数；null 表示未加载完成（热力图先用内置模拟兜底） */
   const [checkInValues, setCheckInValues] = useState<Record<
@@ -40,24 +49,9 @@ export default function HomeContainer() {
     null,
   );
 
-  /** @description 题库总题目数量：传给统计卡片的「通过数 / 总题目数」展示；null 表示未加载 */
-  const [problemTotal, setProblemTotal] = useState<number | null>(null);
-
-  // 轻量拉取题库总数：count_only=1 走 Supabase 精确计数，不拉题目内容
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/problems?count_only=1")
-      .then((res) => res.json())
-      .then((body: { count?: number }) => {
-        if (!cancelled) setProblemTotal(body.count ?? null);
-      })
-      .catch((err: Error) => {
-        console.error("[problems] 题目总数加载失败", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadTick]);
+  /** @description 题库总题目数量：由页面级服务端组件预取（count_only=1 精确计数），
+   *  随 props 传入、首屏 0 请求；服务端取数失败时保持 null，统计卡显示占位 */
+  const [problemTotal] = useState<number | null>(initialTotal ?? null);
 
   // 拉取当前登录用户的提交记录（mine=true 由 Python 端按会话 Cookie 过滤）：
   // 一份原始行同时供统计卡片与打卡热力图（按本地日期聚合提交次数）；
@@ -96,8 +90,9 @@ export default function HomeContainer() {
     };
   }, [sessionUser]);
 
-  // 拉取最新一批题目，传给下部最近题目卡片
+  // 拉取最新一批题目：服务端已预取首屏（initialRecent）时跳过首轮，仅重试时执行
   useEffect(() => {
+    if (reloadTick === 0 && initialRecent) return;
     let cancelled = false;
     setError(null);
     fetch("/api/problems/cursor?limit=6")
@@ -118,7 +113,7 @@ export default function HomeContainer() {
     return () => {
       cancelled = true;
     };
-  }, [reloadTick]);
+  }, [reloadTick, initialRecent]);
 
   return (
     /* 外层布局框架：左侧主内容占满剩余宽度，右侧预留侧栏 */

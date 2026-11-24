@@ -29,7 +29,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { canLeavePage } from "@/lib/leave-guard";
 import { NAV_GROUPS, flattenNavChildren, getActiveGroup } from "./navConfig";
 import { useThemeMode, type ThemeMode } from "./useThemeMode";
-import { clearSessionUser } from "@/lib/session";
 
 // 弹出面板里的菜单项：标题 + 描述，整体可点击；active 时用主色浅背景高亮
 function NavMenuItem({
@@ -261,10 +260,10 @@ export default function TopNav({
                 // 当前页注册了离开守卫（如通话房间）时先确认再退出
                 void canLeavePage().then((ok) => {
                   if (!ok) return;
-                  // 同时清除服务端会话 Cookie 与本地 UI 登录标记
+                  // 清除服务端会话 Cookie 后整页跳转：共享的根布局不会随客户端
+                  // 路由重新执行，整页刷新才能让下发的登录态（Context）同步失效
                   void fetch("/api/auth/logout", { method: "POST" });
-                  clearSessionUser();
-                  router.push("/login");
+                  window.location.assign("/login");
                 });
                 return;
               }

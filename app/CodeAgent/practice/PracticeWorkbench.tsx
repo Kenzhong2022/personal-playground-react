@@ -10,7 +10,7 @@ import {
 import type { PreviewProblem } from "@/components/ProblemStatement";
 import ProblemStatement from "@/components/ProblemStatement";
 import type { EditorLanguage } from "@/components/CodeEditor";
-import { getSessionUser } from "@/lib/session";
+import { useSessionUser } from "@/components/SessionProvider";
 import CodeEditorPanel from "./CodeEditorPanel";
 import { useCodeRunner } from "./useCodeRunner";
 import { DEFAULT_CODE } from "./runTests";
@@ -35,6 +35,8 @@ export default function PracticeWorkbench({
   const [panelTab, setPanelTab] = useState("cases");
   // 作答语言（参考 LeetCode：编辑器上方下拉切换）
   const [language, setLanguage] = useState<EditorLanguage>("python");
+  // 登录态由根布局服务端验签后经 Context 下发（提交评测时取 account_id）
+  const sessionUser = useSessionUser();
 
   /**
    * @description 运行：执行测试集并在结果面板展示，不落库
@@ -47,7 +49,7 @@ export default function PracticeWorkbench({
   /**
    * @description 提交评测：与「运行」一致地执行测试集，跑完后把结果存入 submissions 表——
    *              pass（布尔，全部用例通过才为 true）、error_reason（编译错误或首个失败用例报错）、
-   *              status 由 pass 推导（AC / WA）；需已登录（account_id 取自本地会话）
+   *              status 由 pass 推导（AC / WA）；需已登录（account_id 取自服务端下发的会话用户）
    */
   async function handleSubmit() {
     if (running) return;
@@ -55,7 +57,7 @@ export default function PracticeWorkbench({
       message.warning("代码为空，请先编写解答");
       return;
     }
-    const user = getSessionUser();
+    const user = sessionUser;
     if (!user) {
       message.warning("请先登录后再提交评测");
       return;

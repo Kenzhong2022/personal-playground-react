@@ -5,8 +5,8 @@ import type { ReactNode } from "react";
 import { Layout, Menu, theme } from "antd";
 import { usePathname, useRouter } from "next/navigation";
 import { canLeavePage } from "@/lib/leave-guard";
-import { getSessionUser, type SessionUser } from "@/lib/session";
 import { flattenNavChildren, type NavChild } from "./navConfig";
+import { useSessionUser } from "./SessionProvider";
 
 type SideItem = NavChild;
 
@@ -47,11 +47,8 @@ export default function SideNav({
       return [...next];
     });
   }, [pathname, items]);
-  // 登录态在客户端挂载后读取，避免 SSR 水合不一致（与 TopNav / HomeContainer 同策略）
-  const [user, setUser] = useState<SessionUser | null>(null);
-  useEffect(() => {
-    setUser(getSessionUser());
-  }, []);
+  // 登录态由根布局服务端验签后经 Context 下发，SSR 首屏即真实用户
+  const user = useSessionUser();
   const { token } = theme.useToken();
 
   return (

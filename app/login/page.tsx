@@ -7,7 +7,6 @@ import { App as AntApp, Button, Form, Input } from "antd";
 import { GoogleOutlined } from "@ant-design/icons";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
 import Turnstile from "@/components/Turnstile";
-import { setSessionUser } from "@/lib/session";
 
 /** 登录表单数据类型 */
 interface LoginForm {
@@ -62,13 +61,15 @@ function LoginView() {
         return;
       }
       message.success(`欢迎回来，${data.user.name}！`);
-      // 写入轻量登录态，TopNav 头据此弹出菜单而非跳转登录页
-      setSessionUser(data.user);
-      // 稍作停留让成功提示可见
+      // 登录态已由 Python 端 Set-Cookie 签发（HttpOnly），本地不再镜像存储。
+      // 整页跳转：共享的根布局不会随客户端路由重新执行，整页刷新才能
+      // 让服务端重新验签、SSR 渲染出已登录的首屏
       await new Promise((r) => setTimeout(r, 600));
       // 有来源页（被门禁拦截时带上 ?from=）则回跳，只接受站内路径
       const from = new URLSearchParams(window.location.search).get("from");
-      router.push(from && from.startsWith("/") && !from.startsWith("//") ? from : "/");
+      window.location.assign(
+        from && from.startsWith("/") && !from.startsWith("//") ? from : "/",
+      );
     } catch {
       message.error("网络错误，请稍后重试");
       setCaptchaReset((k) => k + 1);
