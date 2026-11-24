@@ -14,26 +14,26 @@ import {
   Upload,
 } from "antd";
 import {
-  CloudServerOutlined,
   DownloadOutlined,
   FileImageOutlined,
   InboxOutlined,
+  LaptopOutlined,
   ScissorOutlined,
 } from "@ant-design/icons";
 import PageLayout from "@/components/PageLayout";
 
 /**
- * @description 在线抠图工作台：推理由 Cloudflare Workers AI（bria/remove-background）
- *   在服务端完成，前端只负责选图校验、压缩编码与结果展示。
- *   原图会压缩为最长边 2048 的 JPEG data URI 提交给本项目 /api/admin/matting 转发层，
- *   由其调用 Workers AI 并回传透明 PNG
+ * @description 在线抠图工作台：纯前端方案，推理由 BiRefNet-lite-512
+ *   （@huggingface/transformers / ONNX Runtime Web）在浏览器内完成，
+ *   优先 WebGPU（fp16），不支持或初始化失败时回退 WASM（fp32，较慢）。
+ *   模型文件（fp16 约 94MB）首次使用需从 HuggingFace 下载，之后由浏览器缓存；
+ *   图片完全在本地处理，不上传到任何服务器。
+ *   流程：RawImage → processor（512×512 归一化）→ model → logits sigmoid
+ *   得到 alpha 掩膜 → 放大回原图尺寸 → 与原图 destination-in 合成透明 PNG。
  */
 
-/** @description 送推理前的原图边长上限：超长边等比降采样，控制上传体积与推理耗时 */
-const MAX_DIMENSION = 2048;
+const MODEL_ID = "studioludens/birefnet-lite-512";
 const MAX_FILE_SIZE = 30 * 1024 * 1024;
-/** @description data URI 体积上限（服务端同款校验，前端提前拦截省一次往返） */
-const MAX_DATA_URI_LENGTH = 16 * 1024 * 1024;
 
 /** @description 透明 PNG 预览用的棋盘格背景（模拟透明区域） */
 const CHECKER_STYLE: CSSProperties = {
@@ -47,41 +47,160 @@ const CHECKER_STYLE: CSSProperties = {
 };
 
 type ResultState = { url: string; width: number; height: number };
+type Device = "webgpu" | "wasm";
+
+/** @description transformers.js 模块与已加载模型/处理器的会话缓存（进程级，换图复用） */
+type MattingSession = {
+  mod: typeof import("@huggingface/transformers");
+  model: Awaited<
+    ReturnType<typeof import("@huggingface/transformers").AutoModel.from_pretrained>
+  >;
+  processor: Awaited<
+    ReturnType<
+      typeof import("@huggingface/transformers").AutoProcessor.from_pretrained
+    >
+  >;
+  device: Device;
+};
+let cachedSession: MattingSession | null = null;
 
 /**
- * @description 压缩图片为适合送推理的 JPEG data URI：长边超过 2048 先等比降采样，
- *   统一 JPEG 0.92 编码控制体积（抠图场景无 Alpha 需求，有损压缩不影响效果）
+ * @description 加载模型与会话：按 WebGPU 支持情况选择设备与精度，
+ *   WebGPU 初始化失败（驱动/上下文丢失等）时自动回退 WASM fp32
  */
-async function toDataUri(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file);
+async function loadSession(
+  onStatus: (text: string) => void,
+): Promise<MattingSession> {
+  if (cachedSession) return cachedSession;
+  const mod = await import("@huggingface/transformers");
+  const supportsWebGPU =
+    typeof navigator !== "undefined" && "gpu" in navigator;
+  const device: Device = supportsWebGPU ? "webgpu" : "wasm";
+
+  const build = async (dev: Device) => ({
+    model: await mod.AutoModel.from_pretrained(MODEL_ID, {
+      device: dev,
+      dtype: dev === "webgpu" ? "fp16" : "fp32",
+    }),
+    processor: await mod.AutoProcessor.from_pretrained(MODEL_ID),
+  });
+
+  onStatus(
+    supportsWebGPU
+      ? "正在加载模型（WebGPU / fp16，首次约 94MB）…"
+      : "正在加载模型（WASM / fp32，首次约 190MB，较慢）…",
+  );
   try {
-    const longest = Math.max(bitmap.width, bitmap.height);
-    const scale = longest > MAX_DIMENSION ? MAX_DIMENSION / longest : 1;
+    const { model, processor } = await build(device);
+    cachedSession = { mod, model, processor, device };
+  } catch (err) {
+    if (device !== "webgpu") throw err;
+    console.warn("[matting] WebGPU 初始化失败，回退到 WASM:", err);
+    onStatus("WebGPU 初始化失败，回退到 WASM（fp32）…");
+    const { model, processor } = await build("wasm");
+    cachedSession = { mod, model, processor, device: "wasm" };
+  }
+  return cachedSession;
+}
+
+/**
+ * @description 从模型输出 logits 中健壮地提取张量：依次尝试常见键名，
+ *   最后扫描对象值，兼容 transformers.js 不同版本/模型的输出结构
+ */
+function pickTensor(
+  output: Record<string, unknown>,
+): { data: Float32Array; dims: number[] } | null {
+  const candidates = [
+    output.logits,
+    output.output_image,
+    output.output,
+    ...Object.values(output),
+  ];
+  for (const value of candidates) {
+    if (
+      value &&
+      typeof value === "object" &&
+      "data" in value &&
+      "dims" in value &&
+      typeof (value as { dims: unknown }).dims !== "undefined"
+    ) {
+      const tensor = value as { data: Float32Array; dims: number[] };
+      if (tensor.data) return tensor;
+    }
+  }
+  return null;
+}
+
+/**
+ * @description logits → alpha 掩膜 PNG：sigmoid 后写入灰度图的 alpha 通道，
+ *   再放大到目标尺寸（双线性插值平滑边缘）
+ */
+async function logitsToAlphaBlob(
+  logits: { data: Float32Array; dims: number[] },
+  targetWidth: number,
+  targetHeight: number,
+): Promise<Blob> {
+  const dims = logits.dims;
+  const modelH = dims[dims.length - 2];
+  const modelW = dims[dims.length - 1];
+
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = modelW;
+  maskCanvas.height = modelH;
+  const maskCtx = maskCanvas.getContext("2d");
+  if (!maskCtx) throw new Error("无法创建掩膜画布上下文");
+  const maskData = maskCtx.createImageData(modelW, modelH);
+  for (let i = 0; i < logits.data.length; i++) {
+    const val = 1 / (1 + Math.exp(-logits.data[i]));
+    maskData.data[i * 4] = 255;
+    maskData.data[i * 4 + 1] = 255;
+    maskData.data[i * 4 + 2] = 255;
+    maskData.data[i * 4 + 3] = Math.round(val * 255);
+  }
+  maskCtx.putImageData(maskData, 0, 0);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("无法创建画布上下文");
+  ctx.drawImage(maskCanvas, 0, 0, targetWidth, targetHeight);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (item) => (item ? resolve(item) : reject(new Error("掩膜编码失败"))),
+      "image/png",
+    );
+  });
+}
+
+/**
+ * @description 原图与 alpha 掩膜合成透明 PNG：先画原图，
+ *   再以 destination-in 混合模式应用掩膜（保留原图色彩，只在主体区域留像素）
+ */
+async function compositeWithOriginal(
+  originalFile: File,
+  alphaBlob: Blob,
+): Promise<Blob> {
+  const originalBitmap = await createImageBitmap(originalFile);
+  const alphaBitmap = await createImageBitmap(alphaBlob);
+  try {
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    const ctx2d = canvas.getContext("2d");
-    if (!ctx2d) throw new Error("无法创建画布上下文");
-    ctx2d.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.width = originalBitmap.width;
+    canvas.height = originalBitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("无法创建画布上下文");
+    ctx.drawImage(originalBitmap, 0, 0);
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.drawImage(alphaBitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
-        (item) => (item ? resolve(item) : reject(new Error("图片编码失败"))),
-        "image/jpeg",
-        0.92,
+        (item) => (item ? resolve(item) : reject(new Error("结果编码失败"))),
+        "image/png",
       );
     });
-    const dataUri = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("图片读取失败"));
-      reader.readAsDataURL(blob);
-    });
-    if (dataUri.length > MAX_DATA_URI_LENGTH) {
-      throw new Error("图片压缩后仍然过大，请使用更小的图片");
-    }
-    return dataUri;
   } finally {
-    bitmap.close();
+    originalBitmap.close();
+    alphaBitmap.close();
   }
 }
 
@@ -94,10 +213,12 @@ export default function MattingWorkspace() {
   /** @description 原图预览 object URL（state 供渲染，ref 供事件里撤销旧 URL） */
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [matteBusy, setMatteBusy] = useState(false);
+  const [statusText, setStatusText] = useState<string | null>(null);
+  const [device, setDevice] = useState<Device | null>(null);
   const [result, setResult] = useState<ResultState | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
 
-  /** @description 接收图片：本地预览 + 校验类型与大小，推理前不经过任何网络传输 */
+  /** @description 接收图片：本地预览 + 校验类型与大小，全程不经过网络传输 */
   const acceptFile = useCallback(
     (picked: File) => {
       if (!picked.type.startsWith("image/")) {
@@ -124,29 +245,42 @@ export default function MattingWorkspace() {
     setErrorText(null);
     setMatteBusy(true);
     try {
-      const dataUri = await toDataUri(file);
-      const response = await fetch("/api/admin/matting", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ image: dataUri }),
-      });
-      if (!response.ok) {
-        // 服务端错误统一为 JSON { error }，转发层已把额度/参数类错误翻译成中文
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(payload?.error ?? `抠图失败（HTTP ${response.status}）`);
+      const session = await loadSession(setStatusText);
+      setDevice(session.device);
+      setStatusText("正在推理…");
+
+      const image = await session.mod.RawImage.fromBlob(file);
+      const { pixel_values } = await session.processor(image);
+      const output = (await session.model({
+        input_image: pixel_values,
+      })) as Record<string, unknown>;
+
+      const logits = pickTensor(output);
+      if (!logits) {
+        console.error("模型原始输出:", output);
+        throw new Error("无法从模型输出中找到有效的张量，请检查控制台日志");
       }
-      const blob = await response.blob();
-      const bitmap = await createImageBitmap(blob);
+
+      const alphaBlob = await logitsToAlphaBlob(
+        logits,
+        image.width,
+        image.height,
+      );
+      const resultBlob = await compositeWithOriginal(file, alphaBlob);
+
+      const bitmap = await createImageBitmap(resultBlob);
       const { width, height } = bitmap;
       bitmap.close();
       if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(resultBlob);
       resultUrlRef.current = url;
       setResult({ url, width, height });
+      setStatusText(null);
     } catch (err) {
-      setErrorText(err instanceof Error ? err.message : "抠图失败，请稍后重试");
+      console.error("[matting] 处理失败:", err);
+      setErrorText(
+        err instanceof Error ? err.message : "抠图失败，请稍后重试",
+      );
     } finally {
       setMatteBusy(false);
     }
@@ -163,33 +297,46 @@ export default function MattingWorkspace() {
   return (
     <PageLayout>
       <div className="flex flex-col gap-4">
-        {/* 标题 / 服务状态 */}
+        {/* 标题 / 设备状态 */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-base font-medium">在线抠图</span>
             <span className="text-xs text-(--ant-color-text-tertiary)">
-              推理由 Cloudflare Workers AI（bria/remove-background）在服务端完成，
-              图片会压缩至最长边 2048 后提交
+              推理由 BiRefNet-lite-512 在浏览器内完成，图片不会上传；模型
+              fp16 约 94MB，首次使用需下载，之后由浏览器缓存
             </span>
           </div>
           <Space wrap>
-            <Tooltip title="模型运行在 Cloudflare 服务端，无需本地下载模型文件">
-              <Tag icon={<CloudServerOutlined />} color="blue">
-                Workers AI · bria
+            <Tooltip
+              title={
+                device
+                  ? device === "webgpu"
+                    ? "当前使用 WebGPU 加速推理（fp16）"
+                    : "当前使用 WASM 推理（fp32），速度较慢"
+                  : "推理在本地浏览器完成，无需服务端"
+              }
+            >
+              <Tag icon={<LaptopOutlined />} color="geekblue">
+                BiRefNet-lite-512 · 纯前端
               </Tag>
             </Tooltip>
+            {device && (
+              <Tag color={device === "webgpu" ? "green" : "orange"}>
+                {device === "webgpu" ? "WebGPU · fp16" : "WASM · fp32"}
+              </Tag>
+            )}
           </Space>
         </div>
 
-        {/* 每日额度提示 */}
+        {/* 使用说明 */}
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-(--ant-color-border) px-4 py-3">
           <span className="text-sm">
-            BRIA 通用主体抠图
+            通用主体抠图
             <span className="ml-2 text-xs text-(--ant-color-text-tertiary)">
-              人像、商品、动物等任意主体，输出透明 PNG
+              人像、商品、动物等任意主体，输出与原图同尺寸的透明 PNG
             </span>
           </span>
-          <Tag color="processing">免费额度约 6 张/天（UTC 0 点重置）</Tag>
+          <Tag color="processing">无用量限制 · 图片本地处理不上传</Tag>
         </div>
 
         {errorText && (
@@ -215,8 +362,7 @@ export default function MattingWorkspace() {
             </p>
             <p className="text-sm">点击或拖拽图片到此处</p>
             <p className="text-xs text-(--ant-color-text-tertiary)">
-              支持 JPG / PNG / WebP，单张不超过 30MB，超过 2048px
-              会自动等比缩放后提交
+              支持 JPG / PNG / WebP，单张不超过 30MB，原图全尺寸本地推理
             </p>
           </Upload.Dragger>
         ) : (
@@ -255,7 +401,7 @@ export default function MattingWorkspace() {
               title={
                 <Space>
                   <ScissorOutlined />
-                  抠图结果（透明 PNG，{result ? `${result.width}×${result.height}` : "提交尺寸"}
+                  抠图结果（透明 PNG，{result ? `${result.width}×${result.height}` : "原图尺寸"}
                   ）
                 </Space>
               }
@@ -279,7 +425,7 @@ export default function MattingWorkspace() {
                   <div className="flex flex-col items-center gap-2 py-10">
                     <Spin />
                     <span className="text-xs text-(--ant-color-text-tertiary)">
-                      正在抠图，请稍候…
+                      {statusText ?? "正在抠图，请稍候…"}
                     </span>
                   </div>
                 ) : result ? (
