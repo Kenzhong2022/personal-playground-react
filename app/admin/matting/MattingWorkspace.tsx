@@ -49,20 +49,36 @@ const CHECKER_STYLE: CSSProperties = {
 type ResultState = { url: string; width: number; height: number };
 type Device = "webgpu" | "wasm";
 
-/** @description transformers.js 模块与已加载模型/处理器的会话缓存（进程级，换图复用） */
+/** @description 仅用于类型的 transformers.js 模块（npm 包保持 devDependency） */
+type TransformersModule = typeof import("@huggingface/transformers");
+
+/**
+ * @description transformers.js 模块与已加载模型/处理器的会话缓存（进程级，换图复用）；
+ *   model/processor 字段取 AutoModel / AutoProcessor 的宽泛实例类型
+ */
 type MattingSession = {
-  mod: typeof import("@huggingface/transformers");
-  model: Awaited<
-    ReturnType<typeof import("@huggingface/transformers").AutoModel.from_pretrained>
-  >;
+  mod: TransformersModule;
+  model: Awaited<ReturnType<TransformersModule["AutoModel"]["from_pretrained"]>>;
   processor: Awaited<
-    ReturnType<
-      typeof import("@huggingface/transformers").AutoProcessor.from_pretrained
-    >
+    ReturnType<TransformersModule["AutoProcessor"]["from_pretrained"]>
   >;
   device: Device;
 };
 let cachedSession: MattingSession | null = null;
+
+/**
+ * @description 运行时从 CDN 加载 transformers.js（与参考实现一致的浏览器 ESM 导入），
+ *   webpackIgnore / turbopackIgnore 阻止打包器解析该 URL——否则 onnxruntime-web
+ *   的 wasm（单个约 25MiB）会被拷进构建产物，超出 Cloudflare Workers 单资产 25MiB 上限；
+ *   版本固定 3.1.0（参考落地页已验证可用），类型来自本地 devDependency
+ */
+async function loadTransformers(): Promise<TransformersModule> {
+  const cdnUrl: string =
+    "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.1.0/+esm";
+  return (await import(
+    /* webpackIgnore: true */ /* turbopackIgnore: true */ cdnUrl
+  )) as TransformersModule;
+}
 
 /**
  * @description 加载模型与会话：按 WebGPU 支持情况选择设备与精度，
@@ -72,7 +88,7 @@ async function loadSession(
   onStatus: (text: string) => void,
 ): Promise<MattingSession> {
   if (cachedSession) return cachedSession;
-  const mod = await import("@huggingface/transformers");
+  const mod = await loadTransformers();
   const supportsWebGPU =
     typeof navigator !== "undefined" && "gpu" in navigator;
   const device: Device = supportsWebGPU ? "webgpu" : "wasm";
