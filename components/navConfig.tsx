@@ -7,6 +7,7 @@ import {
   CodeOutlined,
   DeepSeekFilled,
   DashboardOutlined,
+  FileTextOutlined,
   PictureOutlined,
   PlayCircleOutlined,
   SafetyOutlined,
@@ -163,6 +164,12 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "媒体管理",
         description: "Supabase Storage 媒体资源增删改查（图片 / 视频 / 音频）",
         icon: <PictureOutlined />,
+      },
+      {
+        key: "/admin/feishu-docs",
+        label: "飞书文档管理",
+        description: "输入知识库 wiki 链接拉取自身及子文档列表",
+        icon: <FileTextOutlined />,
       },
       {
         key: "/admin/matting",
