@@ -28,6 +28,7 @@ import {
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
+import { copyText } from "@/lib/clipboard";
 import PageLayout from "@/components/PageLayout";
 
 /**
@@ -147,11 +148,10 @@ export default function AdminMediaPage() {
   );
 
   const copyLink = useCallback(
-    (item: MediaItem) => {
-      void navigator.clipboard
-        .writeText(item.publicUrl ?? "")
-        .then(() => message.success("公开链接已复制"))
-        .catch(() => message.error("复制失败，请手动复制"));
+    async (item: MediaItem) => {
+      if (await copyText(item.publicUrl ?? ""))
+        message.success("公开链接已复制");
+      else message.error("复制失败，请手动复制");
     },
     [message],
   );

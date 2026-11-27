@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { App } from "antd";
 import { CopyOutlined } from "@ant-design/icons";
+import { copyText } from "@/lib/clipboard";
 import ChatContent from "./components/ChatContent";
 import ChatInput, {
   DEFAULT_MODEL_CONFIG,
@@ -52,12 +53,8 @@ export default function AssistantContainer() {
 
   /** @description 复制消息正文到剪贴板 */
   async function copyMessage(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("已复制");
-    } catch {
-      toast.error("复制失败，请手动选择文本");
-    }
+    if (await copyText(text)) toast.success("已复制");
+    else toast.error("复制失败，请手动选择文本");
   }
 
   /** @description 每条气泡的底部按钮：当前只有复制 */

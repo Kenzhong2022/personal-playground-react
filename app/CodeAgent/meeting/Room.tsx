@@ -6,6 +6,7 @@ import { ShareAltOutlined } from "@ant-design/icons";
 import { useRealtimeKitMeeting } from "@cloudflare/realtimekit-react";
 import { RtkMeeting, useLanguage } from "@cloudflare/realtimekit-react-ui";
 import { formatRoomCode } from "@/lib/room-code";
+import { copyText } from "@/lib/clipboard";
 import { zhCN } from "./zh-CN";
 
 /**
@@ -44,11 +45,10 @@ export default function Room({
 会议链接：${inviteUrl}`;
 
   const copyInviteText = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(inviteText);
+    if (await copyText(inviteText)) {
       message.success("邀请内容已复制，发给对方即可加入");
       setShareOpen(false);
-    } catch {
+    } else {
       message.error("复制失败，请手动选中复制");
     }
   }, [inviteText, message]);
